@@ -21,7 +21,7 @@
 
 
 // todo kconfig it ?
-#define GNSS_FIX_INTERVAL (10)
+#define GNSS_FIX_INTERVAL (25)
 
 static const char * custom_topic = "dbg";
 
@@ -242,6 +242,8 @@ static int gnss_init_and_start(void)
 
 static int shadow_update(bool version_number_include)
 {
+	return 0;
+
 	int err;
 	char *message;
 	int64_t message_ts = 0;
