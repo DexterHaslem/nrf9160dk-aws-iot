@@ -19,6 +19,10 @@
 #include <hw_id.h>
 #endif
 
+
+// todo kconfig it ?
+#define GNSS_FIX_INTERVAL (10)
+
 static const char * custom_topic = "dbg";
 
 LOG_MODULE_REGISTER(aws_iot_sample_log, CONFIG_AWS_IOT_SAMPLE_LOG_LEVEL);
@@ -74,6 +78,80 @@ static int json_add_number(cJSON *parent, const char *str, double item)
 	return json_add_obj(parent, str, json_num);
 }
 
+static int send_pvt()
+{
+	int err = 0;
+	char *message;
+	bool valid = last_pvt.flags & NRF_MODEM_GNSS_PVT_FLAG_FIX_VALID;
+
+	if (!valid) {
+		// silently skip tilll we get fix
+		return 0;
+	}
+
+	LOG_INF("send_pvt start");
+	cJSON *root_obj = cJSON_CreateObject();
+	cJSON *state_obj = cJSON_CreateObject();
+	if (root_obj == NULL || state_obj == NULL) {
+		cJSON_Delete(root_obj);
+		cJSON_Delete(state_obj);
+		err = -ENOMEM;
+		return err;
+	}
+
+	int64_t message_ts = 0;
+	err = date_time_now(&message_ts);
+	if (err) {
+		LOG_ERR("date_time_now %d", err);
+		goto cleanup;
+	}
+	err += json_add_number(state_obj, "ts",  message_ts);
+	err += json_add_number(state_obj, "lat", last_pvt.latitude);
+	err += json_add_number(state_obj, "lon", last_pvt.longitude);
+	err += json_add_number(state_obj, "alt", last_pvt.altitude);
+	err += json_add_number(state_obj, "acc", last_pvt.accuracy);
+	err += json_add_number(state_obj, "speed", last_pvt.speed);
+	err += json_add_number(state_obj, "speed_accuracy", last_pvt.speed_accuracy);
+	err += json_add_number(state_obj, "heading", last_pvt.heading);
+	err += json_add_number(state_obj, "heading_accuracy", last_pvt.heading_accuracy);
+	err += json_add_obj(root_obj, "state", state_obj);
+
+	if (err) {
+		LOG_ERR("json_add..., error: %d", err);
+		goto cleanup;
+	}
+
+	message = cJSON_Print(root_obj);
+	if (message == NULL) {
+		LOG_ERR("cJSON_Print, error: returned NULL");
+		err = -ENOMEM;
+		goto cleanup;
+	}
+
+	struct aws_iot_data tx_data = {
+		.qos = MQTT_QOS_0_AT_MOST_ONCE,
+		.ptr = message,
+		.len = strlen(message)
+	};
+
+	tx_data.topic.str = "gps";
+	tx_data.topic.len = 3;
+
+	LOG_INF("GNSS: sending to AWS IoT ");
+
+	err = aws_iot_send(&tx_data);
+	if (err) {
+		LOG_ERR("GNSS: aws_iot_send, error: %d", err);
+	}
+
+	cJSON_FreeString(message);
+
+cleanup:
+
+	cJSON_Delete(root_obj);
+	return err;
+}
+
 static void gnss_event_handler(int event)
 {
 	if (event != NRF_MODEM_GNSS_EVT_PVT) 
@@ -82,7 +160,7 @@ static void gnss_event_handler(int event)
 	case NRF_MODEM_GNSS_EVT_PVT:
 		int retval = nrf_modem_gnss_read(&last_pvt, sizeof(last_pvt), NRF_MODEM_GNSS_DATA_PVT);
 		if (retval == 0) {
-			LOG_INF("gnss_event_handler new pvt");
+			//LOG_INF("gnss_event_handler new pvt");
 			k_sem_give(&pvt_data_sem);
 		}
 		break;
@@ -107,11 +185,11 @@ static int gnss_init_and_start(void)
 
 	/* Enable all supported NMEA messages. */
 	
-	uint16_t nmea_mask = NRF_MODEM_GNSS_NMEA_RMC_MASK |
-			     NRF_MODEM_GNSS_NMEA_GGA_MASK |
-			     NRF_MODEM_GNSS_NMEA_GLL_MASK |
-			     NRF_MODEM_GNSS_NMEA_GSA_MASK |
-			     NRF_MODEM_GNSS_NMEA_GSV_MASK;
+	// uint16_t nmea_mask = NRF_MODEM_GNSS_NMEA_RMC_MASK |
+	// 		     NRF_MODEM_GNSS_NMEA_GGA_MASK |
+	// 		     NRF_MODEM_GNSS_NMEA_GLL_MASK |
+	// 		     NRF_MODEM_GNSS_NMEA_GSA_MASK |
+	// 		     NRF_MODEM_GNSS_NMEA_GSV_MASK;
 	/* disable nmea and use pvt onl */
 	if (nrf_modem_gnss_nmea_mask_set(0) != 0) {
 		LOG_ERR("Failed to set GNSS NMEA mask");
@@ -141,7 +219,7 @@ static int gnss_init_and_start(void)
 
 	/* Default to continuous tracking. */
 	uint16_t fix_retry = 0;
-	uint16_t fix_interval = 1;
+	uint16_t fix_interval = GNSS_FIX_INTERVAL;
 
 	if (nrf_modem_gnss_fix_retry_set(fix_retry) != 0) {
 		LOG_ERR("Failed to set GNSS fix retry");
@@ -267,8 +345,11 @@ static void gnss_work_fn(struct k_work *work)
 	while (true)
 	{
 		k_sem_take(&pvt_data_sem, K_FOREVER);
-
-		LOG_INF("GNSS worker processing new PVT");
+		int err = send_pvt();
+		if (err != 0)
+		{
+			LOG_ERR("send_pvt returned %d", err);
+		}
 	}
 }
 
