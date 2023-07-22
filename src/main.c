@@ -109,12 +109,12 @@ static int send_pvt()
 	err += json_add_number(state_obj, "ts",  message_ts);
 	err += json_add_number(state_obj, "lat", last_pvt.latitude);
 	err += json_add_number(state_obj, "lon", last_pvt.longitude);
-	err += json_add_number(state_obj, "alt", last_pvt.altitude);
+	//err += json_add_number(state_obj, "alt", last_pvt.altitude);
 	err += json_add_number(state_obj, "acc", last_pvt.accuracy);
-	err += json_add_number(state_obj, "speed", last_pvt.speed);
-	err += json_add_number(state_obj, "speed_accuracy", last_pvt.speed_accuracy);
-	err += json_add_number(state_obj, "heading", last_pvt.heading);
-	err += json_add_number(state_obj, "heading_accuracy", last_pvt.heading_accuracy);
+	//err += json_add_number(state_obj, "speed", last_pvt.speed);
+	//err += json_add_number(state_obj, "speed_accuracy", last_pvt.speed_accuracy);
+	//err += json_add_number(state_obj, "heading", last_pvt.heading);
+	//err += json_add_number(state_obj, "heading_accuracy", last_pvt.heading_accuracy);
 	err += json_add_obj(root_obj, "state", state_obj);
 
 	if (err) {
@@ -666,8 +666,6 @@ int main(void)
 
 	nrf_modem_lib_dfu_handler(err);
 #endif
-
-	lte_lc_psm_req(true);
 
 #if defined(CONFIG_NRF_MODEM_LIB)
 	err = lte_lc_init_and_connect_async(lte_handler);
