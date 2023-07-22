@@ -76,35 +76,15 @@ static int json_add_number(cJSON *parent, const char *str, double item)
 
 static void gnss_event_handler(int event)
 {
-	LOG_INF("gnss_event_handler %d", event);
-	int retval;
-	//struct nrf_modem_gnss_nmea_data_frame *nmea_data;
-
+	if (event != NRF_MODEM_GNSS_EVT_PVT) 
+		return;
 	switch (event) {
 	case NRF_MODEM_GNSS_EVT_PVT:
-	LOG_INF("gnss_event_handler new pvt");
-		retval = nrf_modem_gnss_read(&last_pvt, sizeof(last_pvt), NRF_MODEM_GNSS_DATA_PVT);
+		int retval = nrf_modem_gnss_read(&last_pvt, sizeof(last_pvt), NRF_MODEM_GNSS_DATA_PVT);
 		if (retval == 0) {
+			LOG_INF("gnss_event_handler new pvt");
 			k_sem_give(&pvt_data_sem);
 		}
-		break;
-	case NRF_MODEM_GNSS_EVT_NMEA:
-		//nmea_data = k_malloc(sizeof(struct nrf_modem_gnss_nmea_data_frame));
-		// if (nmea_data == NULL) {
-		// 	LOG_ERR("Failed to allocate memory for NMEA");
-		// 	break;
-		// }
-
-		// retval = nrf_modem_gnss_read(nmea_data,
-		// 			     sizeof(struct nrf_modem_gnss_nmea_data_frame),
-		// 			     NRF_MODEM_GNSS_DATA_NMEA);
-		// if (retval == 0) {
-		// 	retval = k_msgq_put(&nmea_queue, &nmea_data, K_NO_WAIT);
-		// }
-
-		// if (retval != 0) {
-		// 	k_free(nmea_data);
-		// }
 		break;
 	default:
 		break;
@@ -283,8 +263,13 @@ static void connect_work_fn(struct k_work *work)
 
 static void gnss_work_fn(struct k_work *work)
 {
-	LOG_INF("GNSS worker");
-	k_work_schedule(&gnss_work, K_SECONDS(10));
+	// wait loop on sem versus reschedule
+	while (true)
+	{
+		k_sem_take(&pvt_data_sem, K_FOREVER);
+
+		LOG_INF("GNSS worker processing new PVT");
+	}
 }
 
 static void shadow_update_work_fn(struct k_work *work)
@@ -461,7 +446,6 @@ static void work_init(void)
 	k_work_init_delayable(&gnss_work, gnss_work_fn);
 	k_work_init(&shadow_update_version_work, shadow_update_version_work_fn);
 }
-
 
 #if defined(CONFIG_NRF_MODEM_LIB)
 static void lte_handler(const struct lte_lc_evt *const evt)
@@ -654,8 +638,6 @@ int main(void)
 	}
 
 	work_init();
-
-
 	/* Trigger a date time update. The date_time API is used to timestamp data that is sent
 	 * to AWS IoT.
 	 */
@@ -664,8 +646,9 @@ int main(void)
 	/* Postpone connecting to AWS IoT until date time has been obtained. */
 	k_sem_take(&date_time_obtained, K_FOREVER);
 	k_work_schedule(&connect_work, K_NO_WAIT);
-	// start gnss worker loop too
-	k_work_schedule(&gnss_work, K_NO_WAIT);
+
+	// start gnss worker loop soon too
+	k_work_schedule(&gnss_work, K_SECONDS(1));
 
 	return 0;
 }
