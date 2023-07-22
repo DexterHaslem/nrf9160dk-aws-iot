@@ -80,16 +80,18 @@ static int json_add_number(cJSON *parent, const char *str, double item)
 
 static int send_pvt()
 {
-	int err = 0;
-	char *message;
 	bool valid = last_pvt.flags & NRF_MODEM_GNSS_PVT_FLAG_FIX_VALID;
 
-	if (!valid) {
+	if (!cloud_connected || !valid) {
 		// silently skip tilll we get fix
 		return 0;
 	}
 
+	int err = 0;
+	int64_t message_ts = 0;
+	char *message = "\0";
 	LOG_INF("send_pvt start");
+
 	cJSON *root_obj = cJSON_CreateObject();
 	cJSON *state_obj = cJSON_CreateObject();
 	if (root_obj == NULL || state_obj == NULL) {
@@ -99,7 +101,6 @@ static int send_pvt()
 		return err;
 	}
 
-	int64_t message_ts = 0;
 	err = date_time_now(&message_ts);
 	if (err) {
 		LOG_ERR("date_time_now %d", err);
